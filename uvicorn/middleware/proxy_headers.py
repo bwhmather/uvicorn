@@ -72,4 +72,8 @@ class ProxyHeadersMiddleware:
                     port = 0
                     scope["client"] = (host, port)  # type: ignore[index]
 
+                if b"x-forwarded-prefix" in headers:
+                    x_forwarded_prefix = headers[b"x-forwarded-prefix"].decode("latin1")  #
+                    scope["root_path"] = x_forwarded_prefix  # type: ignore[index]
+
         return await self.app(scope, receive, send)
