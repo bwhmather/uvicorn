@@ -55,6 +55,10 @@ class Server:
         self.force_exit = False
         self.last_notified = 0.0
 
+        #: Set once immediately after all requests have been closed and shutdown
+        #: has completed.
+        self._shutdown_event = asyncio.Event()
+
     def run(self, sockets: Optional[List[socket.socket]] = None) -> None:
         self.config.setup_event_loop()
         return asyncio.run(self.serve(sockets=sockets))
@@ -283,10 +287,26 @@ class Server:
         if not self.force_exit:
             await self.lifespan.shutdown()
 
+        self._shutdown_event.set()
+
+    def close(self, *, force_exit: bool=False) -> None:
+        """
+        Asks the server, asynchronously, to initiate shutdown.
+        It should be safe to call this from a request handler.
+        """
+        self.should_exit = True
+        if force_exit and not self.force_exit:
+            self.force_exit = True
+
+    async def wait_closed(self) -> None:
+        """
+        Blocks until the server is completely shutdown.
+        """
+        await self._shutdown_event.wait()
+
     async def shutdown(self) -> None:
-        # TODO doesn't close main loop.
-        # TODO can't be called from request handlers due to circular dependency.
-        await self._shutdown()
+        self.close()
+        await self.wait_closed()
 
     def _install_signal_handlers(self) -> None:
         if threading.current_thread() is not threading.main_thread():
