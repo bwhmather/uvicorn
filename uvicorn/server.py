@@ -68,23 +68,23 @@ class Server:
 
         self.lifespan = config.lifespan_class(config)
 
-        self.install_signal_handlers()
+        self._install_signal_handlers()
 
         message = "Started server process [%d]"
         color_message = "Started server process [" + click.style("%d", fg="cyan") + "]"
         logger.info(message, process_id, extra={"color_message": color_message})
 
-        await self.startup(sockets=sockets)
+        await self._startup(sockets=sockets)
         if self.should_exit:
             return
-        await self.main_loop()
-        await self.shutdown(sockets=sockets)
+        await self._main_loop()
+        await self._shutdown(sockets=sockets)
 
         message = "Finished server process [%d]"
         color_message = "Finished server process [" + click.style("%d", fg="cyan") + "]"
         logger.info(message, process_id, extra={"color_message": color_message})
 
-    async def startup(self, sockets: list = None) -> None:
+    async def _startup(self, sockets: list = None) -> None:
         await self.lifespan.startup()
         if self.lifespan.should_exit:
             self.should_exit = True
@@ -212,16 +212,16 @@ class Server:
                 extra={"color_message": color_message},
             )
 
-    async def main_loop(self) -> None:
+    async def _main_loop(self) -> None:
         counter = 0
-        should_exit = await self.on_tick(counter)
+        should_exit = await self._on_tick(counter)
         while not should_exit:
             counter += 1
             counter = counter % 864000
             await asyncio.sleep(0.1)
-            should_exit = await self.on_tick(counter)
+            should_exit = await self._on_tick(counter)
 
-    async def on_tick(self, counter: int) -> bool:
+    async def _on_tick(self, counter: int) -> bool:
         # Update the default headers, once per second.
         if counter % 10 == 0:
             current_time = time.time()
@@ -249,7 +249,7 @@ class Server:
             return self.server_state.total_requests >= self.config.limit_max_requests
         return False
 
-    async def shutdown(self, sockets: Optional[List[socket.socket]] = None) -> None:
+    async def _shutdown(self, sockets: Optional[List[socket.socket]] = None) -> None:
         logger.info("Shutting down")
 
         # Stop accepting new connections.
@@ -283,7 +283,12 @@ class Server:
         if not self.force_exit:
             await self.lifespan.shutdown()
 
-    def install_signal_handlers(self) -> None:
+    async def shutdown(self) -> None:
+        # TODO doesn't close main loop.
+        # TODO can't be called from request handlers due to circular dependency.
+        await self._shutdown()
+
+    def _install_signal_handlers(self) -> None:
         if threading.current_thread() is not threading.main_thread():
             # Signals can only be listened to from the main thread.
             return
@@ -292,13 +297,13 @@ class Server:
 
         try:
             for sig in HANDLED_SIGNALS:
-                loop.add_signal_handler(sig, self.handle_exit, sig, None)
+                loop.add_signal_handler(sig, self._handle_exit, sig, None)
         except NotImplementedError:  # pragma: no cover
             # Windows
             for sig in HANDLED_SIGNALS:
-                signal.signal(sig, self.handle_exit)
+                signal.signal(sig, self._handle_exit)
 
-    def handle_exit(self, sig: int, frame: Optional[FrameType]) -> None:
+    def _handle_exit(self, sig: int, frame: Optional[FrameType]) -> None:
 
         if self.should_exit and sig == signal.SIGINT:
             self.force_exit = True
